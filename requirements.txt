@@ -1,0 +1,11 @@
+# Runtime dependencies for the Streamlit app on Posit Connect.
+# The model is fit offline (ml/train_model.py), so PyMC is not needed here.
+streamlit==1.64.0
+plotly==7.1.0
+numpy==2.5.3
+scipy==1.18.1
+pandas==2.3.3
+pyarrow==25.0.1
+pyyaml==6.0.3
+snowflake-connector-python[pandas]==4.6.0
+posit-sdk==0.17.0

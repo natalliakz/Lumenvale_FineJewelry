@@ -1,0 +1,16 @@
+{
+  "model_version": "v3.2",
+  "fitted_at": "2026-09-25T00:51:10+00:00",
+  "data_source": "Local files (offline mode)",
+  "weeks": 156,
+  "first_week": "2023-01-02",
+  "last_week": "2025-12-22",
+  "r2": 0.9472802271389069,
+  "mape": 0.01897288284590248,
+  "holdout_weeks": 26,
+  "holdout_mape": 0.01944657998193424,
+  "max_rhat": 1.003177058583651,
+  "draws": 400,
+  "run_rate_weeks": 52,
+  "quarter_weeks": 13
+}

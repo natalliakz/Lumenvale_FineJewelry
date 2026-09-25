@@ -1,0 +1,77 @@
+{
+  "channels": {
+    "Paid Search": {
+      "decay": 0.05,
+      "k": 40000,
+      "beta": 700000,
+      "total_spend": 25667607.909999996,
+      "total_contribution": 102550826.31742066,
+      "roi": 3.995340223249525,
+      "marginal_roi_at_run_rate": 0.5305992492272369
+    },
+    "Connected TV": {
+      "decay": 0.75,
+      "k": 120000,
+      "beta": 900000,
+      "total_spend": 5115491.38,
+      "total_contribution": 18688535.50602874,
+      "roi": 3.653321668978893,
+      "marginal_roi_at_run_rate": 3.696578318887482
+    },
+    "Paid Social": {
+      "decay": 0.3,
+      "k": 70000,
+      "beta": 380000,
+      "total_spend": 15644221.510000002,
+      "total_contribution": 35787720.36261828,
+      "roi": 2.287599951185956,
+      "marginal_roi_at_run_rate": 1.645733570018214
+    },
+    "Display": {
+      "decay": 0.3,
+      "k": 45000,
+      "beta": 120000,
+      "total_spend": 8680050.940000001,
+      "total_contribution": 10034978.1752914,
+      "roi": 1.1560966916734936,
+      "marginal_roi_at_run_rate": 0.9430591332619808
+    },
+    "Affiliate": {
+      "decay": 0.1,
+      "k": 50000,
+      "beta": 200000,
+      "total_spend": 8019013.41,
+      "total_contribution": 14531835.364422536,
+      "roi": 1.8121724732746811,
+      "marginal_roi_at_run_rate": 1.503241756217086
+    },
+    "Email / CRM": {
+      "decay": 0.05,
+      "k": 5000,
+      "beta": 60000,
+      "total_spend": 1993224.75,
+      "total_contribution": 7717944.689323291,
+      "roi": 3.8720895319623594,
+      "marginal_roi_at_run_rate": 1.7928185917515647
+    },
+    "Direct Mail": {
+      "decay": 0.4,
+      "k": 60000,
+      "beta": 150000,
+      "total_spend": 6766722.870000001,
+      "total_contribution": 7894108.517826843,
+      "roi": 1.1666073326018807,
+      "marginal_roi_at_run_rate": 1.1021376474858873
+    },
+    "Podcast": {
+      "decay": 0.65,
+      "k": 60000,
+      "beta": 250000,
+      "total_spend": 2881384.7299999995,
+      "total_contribution": 5801200.028439594,
+      "roi": 2.013337534567831,
+      "marginal_roi_at_run_rate": 2.0320645437382012
+    }
+  },
+  "note": "Synthetic ground truth. Dollar units are per week."
+}

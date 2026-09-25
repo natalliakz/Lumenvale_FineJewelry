@@ -1,0 +1,42 @@
+# R Environment
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+r/renv/library/
+r/renv/staging/
+
+# Python Environment
+.venv/
+__pycache__/
+
+# Quarto
+.quarto/
+/_site/
+*.html
+*_files/
+email-preview/
+.output_metadata.json
+
+# Shiny
+rsconnect/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Data files - avoid tracking synthetic data
+data/*.csv
+r/snapshot/
+
+# Scenarios saved from the app while testing (Snowflake holds the live ones)
+outputs/mmm_saved_scenarios.csv
+
+# Claude Code
+.claude/settings.local.json
+.ruff_cache/

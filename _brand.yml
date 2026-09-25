@@ -1,0 +1,51 @@
+# Brand configuration for the demo: Posit + Snowflake co-branded theme.
+# Lumenvale Jewelers is a FICTIONAL company; the app is presented in the partner
+# colours of a Posit + Snowflake webinar.
+# Used by the Quarto reports (automatically) and by the Streamlit app (via brand.py).
+meta:
+  name:
+    short: Lumenvale
+    full: Lumenvale Jewelers (fictional)
+
+color:
+  palette:
+    navy: "#213D4F"            # Posit dark navy: text and headings
+    posit-blue: "#447099"      # Posit blue: buttons, links, primary accent
+    snowflake-blue: "#29B5E8"  # Snowflake blue: highlights, header rule, badges
+    mid-blue: "#11567F"        # Snowflake mid-blue: emphasis on light panels
+    posit-orange: "#EE6331"    # Posit orange: the recommendation / call-out
+    gray: "#5B6B78"            # secondary text
+    well: "#E9F5FB"            # light Snowflake-blue tint: wells and panels
+    line: "#D5E3EC"            # borders and dividers
+    cloud: "#F7FAFC"           # page background
+    green: "#2E7D4F"           # positive change (status only)
+    red: "#B42318"             # negative change (status only)
+    white: "#FFFFFF"
+  foreground: navy
+  background: cloud
+  primary: posit-blue
+  secondary: gray
+  tertiary: snowflake-blue
+  light: white
+  dark: navy
+  success: green
+  danger: red
+
+typography:
+  fonts:
+    - family: Open Sans
+      source: google
+      weight: [400, 600, 700]
+    - family: Lato
+      source: google
+      weight: [400, 700]
+  base:
+    family: Open Sans
+    size: 15px
+    line-height: 1.5
+  headings:
+    family: Lato
+    weight: 700
+    color: navy
+  link:
+    color: posit-blue

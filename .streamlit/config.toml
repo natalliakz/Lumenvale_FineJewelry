@@ -1,0 +1,16 @@
+# Generated from _brand.yml by `uv run python brand.py`. Edit _brand.yml, not this file.
+[theme]
+base = "light"
+primaryColor = "#447099"
+backgroundColor = "#F7FAFC"
+secondaryBackgroundColor = "#E9F5FB"
+textColor = "#213D4F"
+font = "Open Sans:https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap"
+headingFont = "Lato:https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap"
+borderColor = "#D5E3EC"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
