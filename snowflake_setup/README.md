@@ -24,6 +24,9 @@ R reports) runs from Snowflake.
 | `MMM_R_CROSSCHECK` | 8 | `r/model_crosscheck.qmd` | R readout |
 | `MMM_SAVED_SCENARIOS` | 0 | the app ("Save scenario") | app (Compare scenarios), R readout |
 
+Plus one model object, `LUMENVALE_MMM` in the Snowflake Model Registry, created by
+`uv run ml/register_model.py` (not by the bundle) after loading.
+
 The bundle includes the model outputs from the current fit (v3.2), so the app shows
 the exact numbers in `posit-README.md` right after loading. No refit is needed.
 
@@ -77,6 +80,12 @@ uv run python ml/train_model.py                  # reads inputs, writes the 7 MM
 cd r && quarto render model_crosscheck.qmd       # writes MMM_R_CROSSCHECK
 ```
 
+Then register the fit in the Snowflake Model Registry (the app runs its default version):
+
+```bash
+uv run ml/register_model.py                      # LUMENVALE_MMM.PUBLIC.LUMENVALE_MMM, version V3_2
+```
+
 Until the model has been fitted, the app reads the empty output tables from the
 local files and its header says so. A refit gives very slightly different numbers
 from those in the demo script (MCMC), so do it well before the webinar, not during.
@@ -92,8 +101,10 @@ from those in the demo script (MCMC), so do it well before the webinar, not duri
   of `SALES_WEEKLY`. That user sees lower revenue, and a refit run as that user models
   online sales only. Load and refit with an unrestricted user.
 - Viewers need `SELECT` on the schema and `INSERT` on `MMM_SAVED_SCENARIOS` to save
-  scenarios. Whoever refits needs `INSERT` and `DELETE` on the other tables. Example
-  `GRANT`s are at the end of `schema.sql`.
+  scenarios. Whoever refits needs `INSERT` and `DELETE` on the other tables. Whoever
+  registers the model needs `CREATE MODEL` on the schema, and viewers need `USAGE` on
+  the model `LUMENVALE_MMM` to run it from the app. Example `GRANT`s are at the end of
+  `schema.sql`.
 - Re-running `schema.sql` recreates every table except `MMM_SAVED_SCENARIOS`. To clear
   scenarios: `DELETE FROM LUMENVALE_MMM.PUBLIC.MMM_SAVED_SCENARIOS;`
 

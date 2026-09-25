@@ -2,7 +2,9 @@
 
 A Streamlit app on Posit Connect that puts the marketing mix model in the hands of
 the VP of Growth. It reads precomputed model outputs (Snowflake, or local files
-offline) and never refits, so every interaction is instant.
+offline) and never refits, so every interaction is instant. The Scenario tab runs
+the registered model (Snowflake Model Registry, see mmm_registry.py) in a Snowflake
+warehouse, and falls back to the same math locally when it is not registered.
 
 Run locally:  uv run streamlit run app.py
 
@@ -29,8 +31,12 @@ sys.path.insert(0, str(PROJECT_DIR / "ml"))
 
 from brand import CHANNEL_COLORS, brand, css, plotly_template  # noqa: E402
 from mmm_data import SCENARIO_TABLE, TableReader  # noqa: E402
+from mmm_registry import RegisteredModel, call, default_model, scoring_mode  # noqa: E402
 from model_utils import CHANNELS  # noqa: E402
-from planner import QUARTER_WEEKS, Curves, optimize, project  # noqa: E402
+from planner import (  # noqa: E402
+    QUARTER_WEEKS, Curves, current_plan, optimize, plan_columns, project, recommend_columns,
+)
+from planner import recommend as recommend_locally  # noqa: E402
 
 DISCLAIMER = ("This project contains synthetic data and analysis created for "
               "demonstration purposes only.")
@@ -109,6 +115,23 @@ def load(token: str | None) -> dict:
                 error=reader.error)
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def registered_model(token: str | None) -> RegisteredModel | None:
+    """The model's default version in the Snowflake Model Registry (None if not registered).
+
+    Re-checked every minute, so a new default version reaches running sessions quickly.
+    """
+    return default_model(reader_for(token))
+
+
+@st.cache_data(show_spinner="Running the scenario on the registered model in Snowflake ...")
+def recommend_in_snowflake(token: str | None, model: RegisteredModel, extra: float,
+                           caps: tuple) -> dict:
+    """SELECT MODEL(LUMENVALE_MMM.PUBLIC.LUMENVALE_MMM, <default>)!RECOMMEND(...)"""
+    inputs = dict(zip(recommend_columns(CHANNELS), (extra, *caps)))
+    return call(reader_for(token), model, "recommend", inputs)
+
+
 def saved_scenarios(token: str | None) -> dict:
     """Scenarios saved earlier (by anyone), latest version of each name, as {name: plan}."""
     try:
@@ -130,11 +153,12 @@ def saved_scenarios(token: str | None) -> dict:
 TOKEN = viewer_token()
 DATA = load(TOKEN)
 SUMMARY: pd.DataFrame = DATA["summary"]
+REGISTERED = registered_model(TOKEN)
 CURVES = Curves.from_draws(DATA["draws"], CHANNELS)
-CURRENT = SUMMARY["current_quarter_budget"].to_numpy()  # $ per quarter, current run rate
-CURRENT_K = {ch: round(v / 1e3 / 10) * 10 for ch, v in zip(CHANNELS, CURRENT)}  # $K, tidy
+# $ per quarter at the current run rate, rounded to $10K (the registered model uses the same).
+CURRENT_PLAN = current_plan(SUMMARY["current_quarter_budget"].to_numpy())
+CURRENT_K = {ch: int(round(v / 1e3)) for ch, v in zip(CHANNELS, CURRENT_PLAN)}
 SLIDER_MAX_K = {ch: max(500, int(np.ceil(4 * CURRENT_K[ch] / 50) * 50)) for ch in CHANNELS}
-CURRENT_PLAN = np.array([CURRENT_K[ch] * 1e3 for ch in CHANNELS])
 
 
 def next_quarter(today: date) -> str:
@@ -174,20 +198,29 @@ def extra_caps(caps: pd.DataFrame) -> np.ndarray:
 
 
 def recommend(extra: float, caps: np.ndarray) -> dict:
-    """Best split of an additional budget on top of the current plan, within the caps."""
-    note = ""
-    if extra > 0:
-        room = np.where(np.isnan(caps), extra, np.clip(caps, 0, None))
-        plan, note = optimize(CURVES, CURRENT_PLAN.sum() + extra, CURRENT_PLAN,
-                              CURRENT_PLAN + room, CURRENT_PLAN)
-        add = np.round((plan - CURRENT_PLAN) / 1e3) * 1e3  # whole $K
-        add[np.argmax(add)] += min(extra, room.sum()) - add.sum()  # rounding remainder
-    else:
-        add = np.zeros(len(CHANNELS))
-    plan = CURRENT_PLAN + add
-    return dict(extra=extra, caps=caps, add=add, plan=plan,
-                proj=project(CURVES, plan, CURRENT_PLAN),
-                note=note if "budget" in note.lower() else "")
+    """Best split of an additional budget on top of the current plan, within the caps.
+
+    Scored by the registered model in Snowflake when there is one; otherwise (or if the
+    call fails in auto mode) by the same code locally, on MMM_POSTERIOR_DRAWS.
+    """
+    if REGISTERED is not None and extra > 0:
+        try:
+            out = recommend_in_snowflake(TOKEN, REGISTERED, float(extra), tuple(map(float, caps)))
+        except Exception as exc:  # noqa: BLE001
+            if scoring_mode() == "registry":
+                raise
+            st.session_state["scn_flash"] = ("warning", f"The registered model could not be run "
+                                             f"({exc}); scored locally instead.")
+        else:
+            add = np.array([out[f"ADD_{c}"] for c in plan_columns(CHANNELS)], float)
+            plan = CURRENT_PLAN + add
+            proj = project(CURVES, plan, CURRENT_PLAN)  # revenue by channel, for saving
+            proj["delta"] = (out["INCREMENTAL"], out["INCREMENTAL_P05"], out["INCREMENTAL_P95"])
+            return dict(extra=extra, caps=caps, add=add, plan=plan, proj=proj,
+                        note=out.get("NOTE") or "",
+                        scored_by=f"{REGISTERED.fqn}!RECOMMEND · {REGISTERED.version}, in Snowflake")
+    res = recommend_locally(CURVES, CURRENT_PLAN, extra, caps)
+    return res | dict(scored_by="locally, from MMM_POSTERIOR_DRAWS")
 
 
 def init_state() -> None:
@@ -445,15 +478,24 @@ with head_l:
                 'investment · VP of Growth</div>', unsafe_allow_html=True)
     st.title("Channel Investment Planner")
 with head_r:
-    # The version is the row train_model.py wrote to MMM_MODEL_RUN, so the badge always
-    # names the model whose outputs the app is running on.
+    # The badge names the model the scenarios run on: the default version in the Snowflake
+    # Model Registry or, when the model is not registered, the fit in MMM_MODEL_RUN.
     fitted = meta.get("fitted_at", "")[:10]
+    if REGISTERED is not None:
+        version, source = REGISTERED.model_version, REGISTERED.label
+        fitted = str(REGISTERED.metrics.get("fitted_at") or fitted)[:10]
+    else:
+        version, source = meta.get("model_version", "?"), DATA["model_source"]
     st.markdown(
-        f'<div style="text-align:right"><span class="lv-badge" title="Read from '
-        f'{DATA["model_source"]}">model {meta.get("model_version", "?")}</span><br>'
-        f'<span class="lv-source" style="margin-top:.35rem">{DATA["model_source"]} · fit {fitted}'
+        f'<div style="text-align:right"><span class="lv-badge" title="{source}">model {version}'
+        f'</span><br><span class="lv-source" style="margin-top:.35rem">{source} · fit {fitted}'
         f'</span><br><span class="lv-source" style="margin-top:.3rem">Data: {DATA["source"]}'
         f'</span></div>', unsafe_allow_html=True)
+if REGISTERED is not None and REGISTERED.model_version != meta.get("model_version"):
+    st.warning(f"The registry's default version is {REGISTERED.model_version}, but the model "
+               f"outputs in Snowflake are from {meta.get('model_version')}. The Scenario tab runs "
+               f"{REGISTERED.model_version}; the other tabs use {meta.get('model_version')}. Run "
+               "`uv run ml/register_model.py` after refitting.")
 st.caption(f"⚠️ {DISCLAIMER} Lumenvale Jewelers is a fictional company.")
 
 tab0, tab1, tab2, tab3 = st.tabs(["Scenario", "Where the money goes today", "Plan the full mix",
@@ -524,6 +566,8 @@ with tab0:
             st.markdown(f'<div class="lv-note">Paid Search gets none of it: its next dollar returns '
                         f'only {SUMMARY.loc["Paid Search", "marginal_roi"]:.2f}×.</div>',
                         unsafe_allow_html=True)
+        st.markdown(f'<div class="lv-note">Scored {res["scored_by"]}</div>',
+                    unsafe_allow_html=True)
         st.button("Save to compare", on_click=save_recommendation, disabled=not spent)
         flash = ss.pop("scn_flash", None)
         if flash:

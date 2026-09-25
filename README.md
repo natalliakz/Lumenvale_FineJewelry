@@ -25,6 +25,7 @@ project shows the alternative:
 | Snowflake setup | `snowflake_setup/` | Schema, row access policy, and every table's data as CSV plus ready-to-run SQL ([README](snowflake_setup/README.md)) |
 | Data access | `mmm_data.py`, `r/R/lumenvale.R` | One reader/writer for Snowflake or local files, used by every Python and R component |
 | Bayesian MMM | `ml/model_utils.py`, `ml/train_model.py` | PyMC model with adstock, saturation, seasonality and controls. Back-tested on the last 26 weeks. Writes 6 output tables. |
+| Model Registry | `ml/register_model.py`, `ml/mmm_custom_model.py`, `mmm_registry.py` | Logs the fitted model to the Snowflake Model Registry as `LUMENVALE_MMM` (version `V3_2`); the app runs its default version in a warehouse |
 | Scenario engine | `planner.py` | Projects revenue for any budget from 400 posterior draws and optimises within constraints (SciPy) |
 | App | `app.py`, `brand.py`, `.streamlit/config.toml` | **Channel Investment Planner** (Streamlit) |
 | EDA report | `eda.qmd` | Short visual report: seasonality, carryover, fit, recovered vs true parameters, response curves |
@@ -42,6 +43,7 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.14.
 uv sync                                   # install dependencies from uv.lock
 uv run python data/generate_data.py       # synthetic data (runs automatically if missing)
 uv run python ml/train_model.py           # fit the MMM (about 1 minute), writes outputs/ (and Snowflake)
+uv run ml/register_model.py               # log it to the Snowflake Model Registry (needs Snowflake)
 uv run streamlit run app.py               # launch the planner
 uv run quarto render eda.qmd              # render the EDA report
 ```
@@ -77,6 +79,49 @@ local files otherwise. `MMM_DATA_SOURCE` controls this: `auto` (default), `snowf
 up automatically. On Posit Connect, the app uses each viewer's own Snowflake
 credentials (OAuth integration).
 
+## Snowflake Model Registry
+
+The fitted model is also a Snowflake object: `LUMENVALE_MMM.PUBLIC.LUMENVALE_MMM`, with
+one version per fit (`V3_2` for model v3.2) and the fit quality from `MMM_MODEL_RUN` as
+its metrics. It is a snowflake-ml `CustomModel` (`ml/mmm_custom_model.py`) that carries
+the 400 posterior draws and the scenario code in `planner.py`, and it has two methods:
+
+| Method | Input (one row) | Output |
+|---|---|---|
+| `RECOMMEND` | `EXTRA_BUDGET`, then a cap per channel (`CAP_PAID_SEARCH`, …; `NULL` = no cap) | `ADD_<channel>` per channel, `INCREMENTAL` (with `_P05`/`_P95`), `ROAS`, `NOTE` |
+| `PREDICT` | quarterly $ per channel (`PAID_SEARCH`, `CONNECTED_TV`, …) | `SPEND`, `REVENUE` and `INCREMENTAL` (each with `_P05`/`_P95`), `ROAS` |
+
+```bash
+uv run ml/train_model.py                  # refit; writes the MMM_* tables
+uv run ml/register_model.py               # log that fit as a new version and make it the default
+```
+
+`register_model.py` runs on **Python 3.12** in its own uv environment (the script
+header lists its dependencies). The registry stores the model class as bytecode, so
+it must be logged on the Python the warehouse runs it on. It ends by calling
+`RECOMMEND` in Snowflake and checking the answer against the local calculation.
+
+Any Snowflake user can call the model from SQL, so the same numbers are available
+outside the app:
+
+```sql
+SHOW VERSIONS IN MODEL LUMENVALE_MMM.PUBLIC.LUMENVALE_MMM;
+-- +$200K with Connected TV capped at +$60K (arguments in channel order: Paid Search,
+-- Connected TV, Paid Social, Display, Affiliate, Email / CRM, Direct Mail, Podcast)
+SELECT MODEL(LUMENVALE_MMM.PUBLIC.LUMENVALE_MMM, V3_2)!RECOMMEND(
+    200000, NULL, 60000, NULL, NULL, NULL, NULL, NULL, NULL);
+-- Roll back: the app follows the default version within a minute
+ALTER MODEL LUMENVALE_MMM.PUBLIC.LUMENVALE_MMM SET DEFAULT_VERSION = V3_1;
+```
+
+The app finds the default version with `SHOW MODELS` / `SHOW VERSIONS` and calls it
+with the SQL above, over the same Snowflake connection it uses for the tables. On
+Connect that is the viewer's own identity, and the app needs no extra packages.
+`MMM_SCORING` controls this: `auto` (default: the registered model if there is one,
+otherwise the same code locally on `MMM_POSTERIOR_DRAWS`), `registry` (no fallback)
+or `local`. Viewers need `USAGE` on the model; see the grants at the end of
+`snowflake_setup/schema.sql`.
+
 ## Snowflake tables
 
 | Table | Grain | Written by |
@@ -99,15 +144,18 @@ credentials (OAuth integration).
 
 **Channel Investment Planner** ("Marketing mix model · what-if analysis for channel
 investment · VP of Growth") has four tabs. The **model v3.2** badge in the header is
-read from `MMM_MODEL_RUN`, the row `ml/train_model.py` writes on every fit, and the
-label under it says whether it came from Snowflake or a local file.
+the default version of `LUMENVALE_MMM` in the Snowflake Model Registry, and the label
+under it says so. Before the model is registered (or offline), the badge comes from
+`MMM_MODEL_RUN`, the row `ml/train_model.py` writes on every fit.
 
 1. **Scenario**: the VP of Growth's view. Pick an **Additional budget** ($0–$500K) for
    the horizon quarter (the next calendar quarter, e.g. Q4 2026; override with
    `MMM_HORIZON`), set caps on the extra spend per channel under **Constraints**
    (default: Connected TV capped at +$60K), and click **Run scenario**. It shows the
    recommended allocation by channel, the **projected incremental revenue** and the
-   **blended ROAS** on the additional budget. **Save to compare** keeps it.
+   **blended ROAS** on the additional budget. **Run scenario** calls the registered
+   model's `RECOMMEND` method in Snowflake, and the line under the results names the
+   model and version that answered. **Save to compare** keeps it.
 2. **Where the money goes today**: spend, media-driven revenue, contribution over
    time, and ROI vs marginal ROI by channel.
 3. **Plan the full mix**: set a quarterly budget, adjust channels with sliders, set
@@ -116,8 +164,10 @@ label under it says whether it came from Snowflake or a local file.
    intervals, next to each channel's response curve.
 4. **Compare scenarios**: save named scenarios and compare them side by side.
 
-Every interaction is computed from pre-calculated posterior draws, so the app responds
-in well under a second and never refits the model.
+Every interaction is computed from pre-calculated posterior draws, so the app never
+refits the model. The other tabs run locally on `MMM_POSTERIOR_DRAWS`, so the sliders
+respond instantly. The app warns if those draws are from a different version than the
+registry's default.
 
 ## Custom branding with `_brand.yml`
 

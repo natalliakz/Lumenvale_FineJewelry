@@ -214,6 +214,15 @@ class TableReader:
                 f"{local_path(table)} not found. Run `uv run python ml/train_model.py`.")
         return read_local(table)
 
+    def rows(self, sql: str) -> list[dict]:
+        """Run any statement in Snowflake (SHOW, a model call, ...) and return its rows as dicts."""
+        if self._con is None:
+            raise RuntimeError("Not connected to Snowflake.")
+        with self._con.cursor() as cur:
+            cur.execute(sql)
+            names = [d[0].lower() for d in cur.description]
+            return [dict(zip(names, r)) for r in cur.fetchall()]
+
     def write(self, table: str, df: pd.DataFrame, overwrite: bool = True) -> str:
         """Write a table to Snowflake when connected, and always to a local file."""
         table = table.upper()

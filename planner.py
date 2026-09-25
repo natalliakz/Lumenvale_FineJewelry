@@ -12,6 +12,7 @@ demonstration purposes only.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 import numpy as np
@@ -19,6 +20,20 @@ import pandas as pd
 from scipy.optimize import minimize
 
 QUARTER_WEEKS = 13
+
+
+# Column names of the registered model's methods (ml/mmm_custom_model.py).
+def feature_name(channel: str) -> str:
+    """'Email / CRM' -> 'EMAIL_CRM': a Snowflake-friendly column name for a channel."""
+    return re.sub(r"[^A-Z0-9]+", "_", channel.upper()).strip("_")
+
+
+def plan_columns(channels: list[str]) -> list[str]:
+    return [feature_name(ch) for ch in channels]
+
+
+def recommend_columns(channels: list[str]) -> list[str]:
+    return ["EXTRA_BUDGET"] + [f"CAP_{feature_name(ch)}" for ch in channels]
 
 
 @dataclass
@@ -46,6 +61,11 @@ class Curves:
         rev = QUARTER_WEEKS * self.beta * (1 - e) / (1 + e)
         grad = self.beta / self.k * 2 * e / (1 + e) ** 2
         return float(rev.sum(1).mean()), grad.mean(0)
+
+
+def current_plan(quarterly_budget: np.ndarray) -> np.ndarray:
+    """The current run-rate plan per channel, rounded to $10K (the "current plan" everyone quotes)."""
+    return np.round(np.asarray(quarterly_budget, float) / 1e4) * 1e4
 
 
 def project(curves: Curves, plan: np.ndarray, baseline_plan: np.ndarray) -> dict:
@@ -108,3 +128,24 @@ def optimize(curves: Curves, total: float, lower: np.ndarray, upper: np.ndarray,
     )
     plan = np.clip(res.x * scale, lower, upper)
     return plan, note if res.success else f"{note} (solver: {res.message})"
+
+
+def recommend(curves: Curves, current: np.ndarray, extra: float, caps: np.ndarray) -> dict:
+    """Best split of an additional budget on top of the current plan.
+
+    ``caps`` is the most each channel may receive of the extra budget, in $ (NaN = no cap).
+    The split is in whole $K. This is what the registered model's RECOMMEND method runs.
+    """
+    current = np.asarray(current, float)
+    caps = np.asarray(caps, float)
+    note = ""
+    if extra > 0:
+        room = np.where(np.isnan(caps), extra, np.clip(caps, 0, None))
+        plan, note = optimize(curves, current.sum() + extra, current, current + room, current)
+        add = np.round((plan - current) / 1e3) * 1e3  # whole $K
+        add[np.argmax(add)] += min(extra, room.sum()) - add.sum()  # rounding remainder
+    else:
+        add = np.zeros(len(current))
+    plan = current + add
+    return dict(extra=extra, caps=caps, add=add, plan=plan, proj=project(curves, plan, current),
+                note=note if "budget" in note.lower() else "")

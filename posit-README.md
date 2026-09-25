@@ -56,12 +56,19 @@ never saw, MAPE is 1.9%. Max R-hat is 1.003 and there are 400 posterior draws.
 option in [`snowflake_setup/README.md`](snowflake_setup/README.md). The simplest is to
 paste `snowflake_setup/lumenvale_mmm_setup.sql` into a Snowsight worksheet and click
 **Run All**. The bundle includes the model outputs behind every number below.
+Then register the model from Posit Workbench: `uv run ml/register_model.py` logs it to
+the Snowflake Model Registry as `LUMENVALE_MMM` version `V3_2`, makes that the default,
+and checks that it gives the numbers below when run in Snowflake.
 
 Run through this list 30 minutes before the webinar.
 
 - [ ] The app on Connect opens. Top right shows the **model v3.2** badge with
-      **Snowflake · LUMENVALE_MMM.PUBLIC.MMM_MODEL_RUN** under it, and
-      **Data: Snowflake · LUMENVALE_MMM.PUBLIC** (not "local file" / "Local files").
+      **Snowflake Model Registry · LUMENVALE_MMM.PUBLIC.LUMENVALE_MMM · V3_2 (default)**
+      under it, and **Data: Snowflake · LUMENVALE_MMM.PUBLIC** (not "local file" /
+      "Local files").
+- [ ] Under the Scenario results it says **Scored LUMENVALE_MMM.PUBLIC.LUMENVALE_MMM!RECOMMEND
+      · V3_2, in Snowflake** (not "locally"). Click **Run scenario** once so the model is
+      warm in the warehouse.
 - [ ] Reload the page so the **Scenario** tab is on its defaults: **+$200K**, Connected TV
       capped at +$60K.
 - [ ] **Plan the full mix** is on the **current plan** (click **Reset to current plan** and
@@ -73,7 +80,9 @@ Run through this list 30 minutes before the webinar.
       ```sql
       SELECT * FROM LUMENVALE_MMM.PUBLIC.MARKETING_SPEND_WEEKLY ORDER BY WEEK_START DESC LIMIT 20;
       SELECT * FROM LUMENVALE_MMM.PUBLIC.MMM_CHANNEL_SUMMARY;
-      SELECT MODEL_VERSION, FITTED_AT, WEEKS, HOLDOUT_MAPE FROM LUMENVALE_MMM.PUBLIC.MMM_MODEL_RUN;
+      SHOW VERSIONS IN MODEL LUMENVALE_MMM.PUBLIC.LUMENVALE_MMM;
+      SELECT MODEL(LUMENVALE_MMM.PUBLIC.LUMENVALE_MMM, V3_2)!RECOMMEND(
+          200000, NULL, 60000, NULL, NULL, NULL, NULL, NULL, NULL);
       ```
 - [ ] The Git repository is open in a third tab (for the "it's in Git" moment).
 - [ ] The EDA report ("what used to be the 20-page report") is published and open.
@@ -100,24 +109,28 @@ Snowflake bundle loads. If you run as `demo_snowflake_user@posit.co`, see
   channel, as marketing ops loads it.
 - Show `MMM_CHANNEL_SUMMARY`: "The model writes its results back here: ROI, marginal
   ROI and uncertainty for every channel, plus response curves and posterior draws."
-- Run the `MMM_MODEL_RUN` query: "And this is the model itself: **v3.2**, when it was
-  fit, and its hold-out error. Remember that version number."
-- *Talking point:* the model is fit on Workbench with managed Snowflake credentials.
-  There are no passwords in the code.
+- Run `SHOW VERSIONS`: "And this is the model itself, in the **Snowflake Model
+  Registry**: **V3_2** is the default version, with its fit date and hold-out error as
+  metrics. Remember that version number."
+- Run the `RECOMMEND` query: "Anyone with SQL can ask it where the next $200K should
+  go. Keep an eye on that answer."
+- *Talking point:* the model is fit and registered from Workbench with managed
+  Snowflake credentials. There are no passwords in the code.
 
 ### 1:10 – "Scenario": where should the next $200K go? (55 s)
 
 - Open the **Channel Investment Planner** on Connect. Point at the top right: "**model
-  v3.2**, read from `MMM_MODEL_RUN` in Snowflake. It's the same row we just queried, so
-  the VP of Growth always knows which model they're looking at. Refit the model and the
-  badge changes on the next page load, with no redeploy."
+  v3.2**, the default version in the Snowflake Model Registry, the one we just
+  queried. The VP of Growth always knows which model they're looking at. Register a new
+  version or roll back, and the app follows within a minute, with no redeploy."
 - The **Scenario** panel: **Additional budget +$200K**, **Horizon Q4 2026**, and one
   business constraint: **Connected TV capped at +$60K** (inventory is nearly sold out).
   Click **Run scenario**.
 - **Recommended allocation of +$200K:** Email / CRM **+$115K**, Connected TV **+$60K**
   (at its cap), Affiliate **+$13K**, Display **+$12K**. **Paid Search gets $0.**
 - **Projected incremental revenue $567K** (90% interval $286K–$983K), a **blended ROAS
-  of 2.8×** on the additional $200K.
+  of 2.8×** on the additional $200K. Point at the line under it: "Scored by the
+  registered model, **in Snowflake**, as this viewer. Same answer as the SQL query."
 - Optional: drag to **$500K** and **Run scenario**: **$1.14M** at **2.3×**. "Every
   extra dollar returns a little less. That's saturation, and the model shows it."
 - Click **Save to compare**.
@@ -187,8 +200,9 @@ Snowflake bundle loads. If you run as `demo_snowflake_user@posit.co`, see
 5. **The constraints matter:** the optimizer respects what the business knows, and
    the trade-off it makes is visible.
 6. **Uncertainty is shown, not hidden:** every projection has a 90% interval.
-7. **One model version everywhere:** the badge in the app, the EDA footer and
-   `MMM_MODEL_RUN` in Snowflake all say v3.2.
+7. **One governed model:** the app runs the default version in the Snowflake Model
+   Registry (v3.2), the same one SQL users call; the EDA footer and `MMM_MODEL_RUN`
+   say v3.2 too.
 
 **Be ready for the question "is the model perfect?" No, and that's the point:**
 
@@ -211,6 +225,15 @@ Snowflake bundle loads. If you run as `demo_snowflake_user@posit.co`, see
   writes its outputs and `MMM_MODEL_RUN`. The app reads the outputs and writes and
   re-reads `MMM_SAVED_SCENARIOS`. The EDA reads everything. The R cross-check writes
   `MMM_R_CROSSCHECK`, and the R readout reads it along with the saved scenarios.
+- **Model Registry:** `ml/register_model.py` logs the fit as
+  `LUMENVALE_MMM.PUBLIC.LUMENVALE_MMM` (a snowflake-ml `CustomModel` carrying the
+  posterior draws and `planner.py`), one version per `MODEL_VERSION`, and sets it as
+  the default. The app calls `RECOMMEND` on the default version with plain SQL over
+  the viewer's connection. The other tabs run locally on `MMM_POSTERIOR_DRAWS` so the
+  sliders stay instant. The app warns if those draws and the registry's default
+  version differ. `MMM_SCORING` = `auto` (default) / `registry` / `local`. The script
+  runs on Python 3.12 (see its header), because the registry stores the model class as
+  bytecode for the warehouse's Python.
 - **Row access policy:** `SALES_CHANNEL_POLICY` on `SALES_WEEKLY` shows
   `demo_snowflake_user@posit.co` only the **Online** rows. When you connect as that
   user, revenue totals are lower than the numbers in this guide, and a model refit from
@@ -253,6 +276,7 @@ uv run python snowflake_setup/build_bundle.py             # 5. rebuild the Snowf
 # Snowflake (from Workbench)
 uv run python snowflake_setup/load_to_snowflake.py        # schema, policy and all tables
 # or: --inputs-only, then `uv run python ml/train_model.py` to fit in Snowflake
+uv run ml/register_model.py                               # log the fit to the Model Registry (Python 3.12)
 
 # R reports (from r/)
 cd r
@@ -278,7 +302,12 @@ uv run rsconnect deploy streamlit . --entrypoint app.py --title "Channel Investm
 Then, in the content settings:
 
 - set `MMM_DATA_SOURCE=snowflake`
+- optionally set `MMM_SCORING=registry`, so the Scenario tab fails loudly instead of
+  scoring locally when the registered model can't be run
 - add the Snowflake OAuth integration
+
+The app calls the registered model with SQL over the same connection, so
+`requirements.txt` has no snowflake-ml dependency.
 
 The synthetic input CSVs aren't needed, because the app reads model outputs only. If
 you want the app to run without Snowflake, leave `MMM_DATA_SOURCE` unset: it then
@@ -313,8 +342,12 @@ create with `rsconnect write-manifest streamlit .`. Then, on Connect, choose **P
 | Symptom | Fix |
 |---|---|
 | App header says "Local files (offline mode)" | `MMM_DATA_SOURCE` is unset, or the Snowflake connection failed. The error is shown in the app. On Connect, check the OAuth integration. |
-| The badge says "local file outputs/model_metadata.json" | `MMM_MODEL_RUN` is missing or empty in Snowflake (or the app is offline). Load `snowflake_setup/` or refit, then reload. |
-| The badge shows a different version than expected | The badge is whatever row is in `MMM_MODEL_RUN`. Check it with the query in the checklist. Set `MODEL_VERSION` in `ml/train_model.py` before a refit. |
+| The label under the badge says `MMM_MODEL_RUN`, not "Snowflake Model Registry" | The model isn't registered, or the viewer can't see it (`USAGE` on the model). Run `uv run ml/register_model.py` and see the grants in `schema.sql`. The app checks again every minute. |
+| The badge says "local file outputs/model_metadata.json" | Offline, and the model isn't registered: `MMM_MODEL_RUN` is missing or empty in Snowflake. Load `snowflake_setup/` or refit, then reload. |
+| The badge shows a different version than expected | The badge is the registry's default version: `SHOW VERSIONS IN MODEL LUMENVALE_MMM.PUBLIC.LUMENVALE_MMM;`. Change it with `ALTER MODEL ... SET DEFAULT_VERSION = V3_2;`. |
+| "The registry's default version is …, but the model outputs … are from …" | You refit without registering (or registered without refitting). Run `uv run ml/register_model.py` after `ml/train_model.py`. |
+| "The registered model could not be run …; scored locally instead" | The warehouse is suspended or unavailable, or the viewer lacks `USAGE` on the model or warehouse. The numbers are still right (same code); fix the grant for the "in Snowflake" line. The first call after a while can take several seconds while the warehouse resumes. |
+| `register_model.py` says to use Python 3.12 | Run it as `uv run ml/register_model.py` (not `uv run python ...`), so uv uses the script's own 3.12 environment. |
 | Header says "(N table(s) from local files)" | Those tables are missing or empty in Snowflake. Load `snowflake_setup/` (or run the model). |
 | `... does not exist. Run snowflake_setup/schema.sql first.` | The code writes only into existing tables (plain `INSERT`s, no stages). Run `schema.sql`. |
 | "Save scenario" warns "saved for this session only" | The viewer lacks `INSERT` on `MMM_SAVED_SCENARIOS`. See the `GRANT`s at the end of `schema.sql`. |
@@ -334,6 +367,9 @@ create with `rsconnect write-manifest streamlit .`. Then, on Connect, choose **P
   saturation, Fourier seasonality, controls). `pymc-marketing` doesn't install on
   Python 3.14 yet (pydantic incompatibility). The model structure is the same, so you
   can swap it back in when a compatible release ships.
+- **Model Registry: Python 3.12.** `ml/register_model.py` runs in its own uv
+  environment on Python 3.12 (the script header), matching the Python the warehouse
+  runs the model on. The app itself stays on 3.14 and does not need snowflake-ml.
 - **R 4.6** is the target. The R documents were built and tested on R 4.4.2, and
   `r/renv.lock` pins public CRAN packages, so restores work anywhere.
 
@@ -342,8 +378,9 @@ create with `rsconnect write-manifest streamlit .`. Then, on Connect, choose **P
 - **Pilot on real data:** point `mmm_data.py` at the prospect's own spend and sales
   tables in Snowflake. The model only needs weekly spend by channel, revenue and a few
   controls.
-- **Automate:** schedule `ml/train_model.py` on Connect for a monthly refit. The app
-  and the weekly email pick up the new outputs without redeploying.
+- **Automate:** schedule `ml/train_model.py` and `ml/register_model.py` on Connect for
+  a monthly refit. Each fit becomes a new registry version, and the app and the weekly
+  email pick it up without redeploying.
 - **Govern:** use viewer-level Snowflake credentials plus row access policies, so each
   team sees only its own data.
 - **Ask:** "Which decision would you most like your marketing team to make in the app
